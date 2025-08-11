@@ -1,5 +1,5 @@
 # Neural Network Lib
-hi.
+hello.
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
