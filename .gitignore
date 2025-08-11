@@ -1,1 +1,6 @@
 MNIST_CSV/mnist_train.csv
+node_modules/
+.env
+/dist
+.gitattributes
+.DS_Store
