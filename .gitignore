@@ -5,3 +5,4 @@ node_modules/
 .gitattributes
 .DS_Store
 test/
+MNIST_CSV/
