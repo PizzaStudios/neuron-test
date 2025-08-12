@@ -204,4 +204,98 @@ class Neuron {
     }
     
 }
+class SoftmaxNN {
+    
+    constructor(inputs, hidden, outputs, learningRate = 0.01) {
+        if (!inputs) {
+            throw new Error('Please input a number for "input". It is recommended to do so.');
+        } else {
+            this.inputs = inputs;
+        }
+        if (hidden && Array.isArray(hidden)) {
+            this.hidden = hidden;
+        } else {
+            throw new Error('"hidden" must be an Array');
+ 
+        }
+        if (!outputs) {
+            throw new Error('Please input a number for "output".');
+        } else {
+            this.output = outputs;
+        }
+        
+        this.learningRate = learningRate;
+        let prevLayerSize = this.inputs;
+        this.layers = []
+       for(let size of this.hidden) { 
+        const layer = Array.from({ length: size }, () => new Neuron(prevLayerSize, 'relu', learningRate));
+        this.layers.push(layer);
+        prevLayerSize = size;
+       }
+
+       
+        this.outputLayer = Array.from({ length: this.output }, () => new Neuron(prevLayerSize, 'linear', learningRate));
+    }
+    softmax(logits) {
+        const max = Math.max(...logits);
+        const exps = logits.map(x => Math.exp(x - max));
+        const sum = exps.reduce((a, b) => a + b, 0);
+        return exps.map(e => e / sum);
+
+    }
+    predict(input) {
+        let currentInput = input;
+        let layerOutputs = [];
+        for (const layer of this.layers) {
+            currentInput = layer.map(neuron => neuron.predict(currentInput).output);
+            layerOutputs.push(currentInput);
+        }
+        const outputValues = this.outputLayer.map(neuron => neuron.predict(currentInput).output);
+
+
+        return {output: this.softmax(outputValues), z: outputValues, layers: layerOutputs};
+    }
+    train(x, y, epoch) {
+        if (!Array.isArray(x) || !Array.isArray(y)) {
+            throw new Error('x and y must be arrays');
+        }
+        if (x.length !== y.length) {
+            throw new Error('X and Y lengths are not matching');
+        }
+        if (typeof epoch !== 'number') {
+            throw new Error('epoch must be a number');
+        }
+
+        for (let e = 0; e < epoch; e++) {
+            for (let i = 0; i < x.length; i++) {
+                let currentInput = x[i];
+                // Forward pass
+             const { output : finalOutput, z: outputValues, layers: layerOutputs} = this.predict(currentInput);
+                
+                // Backward pass
+                const outputError = finalOutput.map((output, index) => output - y[i][index]);
+              
+
+                // Update output layer weights
+                for (let j = 0; j < this.outputLayer.length; j++) {
+                    const neuron = this.outputLayer[j];
+                    neuron.train(layerOutputs[layerOutputs.length - 1], outputError[j]);
+                }
+
+                // Backpropagate through hidden layers
+               for(let l = this.layers.length - 1; l >= 0; l--) {
+                    const layer = this.layers[l];
+                    const previousLayerOutput = l === 0 ? currentInput : layerOutputs[l - 1];
+                    const nextLayer = l === this.layers.length - 1 ? this.outputLayer : this.layers[l + 1];
+                     for(let i=0; i<layer.length; i++) { 
+                        const neuron = layer[i];
+                        const error = outputError.reduce((sum, nextNeuron, index) => sum + nextNeuron * nextLayer[index].weights[i], 0);
+                        neuron.train(previousLayerOutput, error * neuron.derivative(outputValues[i]));
+                     }
+
+            }
+    }
+}
+}
+}
 module.exports = {Neuron}
