@@ -160,5 +160,48 @@ class Neuron {
             }
         }
     }
+    
+    /**
+     * Calculates the Mean Squared Error (MSE) between the predicted outputs and the actual outputs.
+     *
+     * @param {Array} X - An array of input values.
+     * @param {Array} Y - An array of actual output values corresponding to the inputs.
+     * @returns {number} The mean squared error between the predicted and actual outputs.
+     * @throws {Error} Throws an error if the input and output arrays do not have the same length.
+     */
+    scoreMSE(X, Y) {
+        if (X.length !== Y.length) {
+            throw new Error("Input and output arrays must have the same length.");
+        }
+        let sumSquaredError = 0;
+        for (let i = 0; i < X.length; i++) {
+            const prediction = this.predict(X[i]).output;
+            const error = Y[i] - prediction;
+            sumSquaredError += error * error;
+        }
+        return sumSquaredError / X.length;
+    }
+    /**
+     * Calculates the accuracy of the neuron on a dataset.
+     * @param {number[][]} X - Array of input feature arrays.
+     * @param {number[]} Y - Array of target outputs (0 or 1).
+     * @returns {number} Accuracy as a fraction between 0 and 1.
+     * @throws {Error} Throws if input arrays length mismatch.
+     */
+    score(X, Y) {
+        if (X.length !== Y.length) {
+            throw new Error("Input and output arrays must have the same length.");
+        }
+        let correct = 0;
+        for (let i = 0; i < X.length; i++) {
+            const prediction = this.predict(X[i]).output;
+            const predictedClass = prediction >= 0.5 ? 1 : 0;
+            if (predictedClass === Y[i]) {
+                correct++;
+            }
+        }
+        return correct / X.length; // accuracy between 0 and 1
+    }
+    
 }
 module.exports = {Neuron}
