@@ -127,13 +127,13 @@ class Neuron {
             throw new Error('x must be an array');
         }
         const { z, output } = this.predict(x);
-        const error = y - output;
+        const error = output - y;
         const gradient = error * this.derivative(z);
 
         for (let i = 0; i < this.weights.length; i++) {
-            this.weights[i] += this.learningRate * gradient * x[i];
+            this.weights[i] -= this.learningRate * gradient * x[i];
         }
-        this.bias += this.learningRate * gradient;
+        this.bias -= this.learningRate * gradient;
     }
 
     /**
@@ -160,12 +160,11 @@ class Neuron {
             }
         }
     }
-    
+
     /**
      * Calculates the Mean Squared Error (MSE) between the predicted outputs and the actual outputs.
-     *
-     * @param {Array} X - An array of input values.
-     * @param {Array} Y - An array of actual output values corresponding to the inputs.
+     * @param {number[][]} X - Array of input feature arrays.
+     * @param {number[]} Y - Array of actual output values corresponding to the inputs.
      * @returns {number} The mean squared error between the predicted and actual outputs.
      * @throws {Error} Throws an error if the input and output arrays do not have the same length.
      */
@@ -181,6 +180,7 @@ class Neuron {
         }
         return sumSquaredError / X.length;
     }
+
     /**
      * Calculates the accuracy of the neuron on a dataset.
      * @param {number[][]} X - Array of input feature arrays.
@@ -202,10 +202,20 @@ class Neuron {
         }
         return correct / X.length; // accuracy between 0 and 1
     }
-    
 }
+
+/**
+ * Class representing a neural network with multiple layers and softmax output.
+ */
 class SoftmaxNN {
-    
+    /**
+     * Creates a new SoftmaxNN instance.
+     * @param {number} inputs - Number of input features.
+     * @param {number[]} hidden - Array specifying the number of neurons in each hidden layer.
+     * @param {number} outputs - Number of output neurons.
+     * @param {number} [learningRate=0.01] - Learning rate for training.
+     * @throws {Error} Throws if input parameters are invalid.
+     */
     constructor(inputs, hidden, outputs, learningRate = 0.01) {
         if (!inputs) {
             throw new Error('Please input a number for "input". It is recommended to do so.');
@@ -216,33 +226,42 @@ class SoftmaxNN {
             this.hidden = hidden;
         } else {
             throw new Error('"hidden" must be an Array');
- 
         }
         if (!outputs) {
             throw new Error('Please input a number for "output".');
         } else {
             this.output = outputs;
         }
-        
+
         this.learningRate = learningRate;
         let prevLayerSize = this.inputs;
-        this.layers = []
-       for(let size of this.hidden) { 
-        const layer = Array.from({ length: size }, () => new Neuron(prevLayerSize, 'relu', learningRate));
-        this.layers.push(layer);
-        prevLayerSize = size;
-       }
+        this.layers = [];
+        for (let size of this.hidden) {
+            const layer = Array.from({ length: size }, () => new Neuron(prevLayerSize, 'relu', learningRate));
+            this.layers.push(layer);
+            prevLayerSize = size;
+        }
 
-       
         this.outputLayer = Array.from({ length: this.output }, () => new Neuron(prevLayerSize, 'linear', learningRate));
     }
+
+    /**
+     * Applies the softmax function to an array of logits.
+     * @param {number[]} logits - Array of raw output values from the output layer.
+     * @returns {number[]} Softmax-normalized probabilities.
+     */
     softmax(logits) {
         const max = Math.max(...logits);
         const exps = logits.map(x => Math.exp(x - max));
         const sum = exps.reduce((a, b) => a + b, 0);
         return exps.map(e => e / sum);
-
     }
+
+    /**
+     * Performs a forward pass through the network.
+     * @param {number[]} input - Input feature array.
+     * @returns {{output: number[], z: number[], layers: number[][]}} Object containing softmax output, raw output values, and hidden layer outputs.
+     */
     predict(input) {
         let currentInput = input;
         let layerOutputs = [];
@@ -252,29 +271,35 @@ class SoftmaxNN {
         }
         const outputValues = this.outputLayer.map(neuron => neuron.predict(currentInput).output);
 
-
-        return {output: this.softmax(outputValues), z: outputValues, layers: layerOutputs};
+        return { output: this.softmax(outputValues), z: outputValues, layers: layerOutputs };
     }
-    train(x, y, epoch) {
+
+    /**
+     * Trains the network on a dataset for multiple epochs.
+     * @param {number[][]} x - Array of input feature arrays.
+     * @param {number[][]} y - Array of target output arrays.
+     * @param {number} [epochs=50] - Number of training epochs.
+     * @throws {Error} Throws if input arrays length mismatch or epochs is not a number.
+     */
+    train(x, y, epochs = 50) {
         if (!Array.isArray(x) || !Array.isArray(y)) {
             throw new Error('x and y must be arrays');
         }
         if (x.length !== y.length) {
             throw new Error('X and Y lengths are not matching');
         }
-        if (typeof epoch !== 'number') {
-            throw new Error('epoch must be a number');
+        if (typeof epochs !== 'number') {
+            throw new Error('epochs must be a number');
         }
 
-        for (let e = 0; e < epoch; e++) {
+        for (let e = 0; e < epochs; e++) {
             for (let i = 0; i < x.length; i++) {
                 let currentInput = x[i];
                 // Forward pass
-             const { output : finalOutput, z: outputValues, layers: layerOutputs} = this.predict(currentInput);
-                
+                const { output: finalOutput, z: outputValues, layers: layerOutputs } = this.predict(currentInput);
+
                 // Backward pass
                 const outputError = finalOutput.map((output, index) => output - y[i][index]);
-              
 
                 // Update output layer weights
                 for (let j = 0; j < this.outputLayer.length; j++) {
@@ -283,19 +308,41 @@ class SoftmaxNN {
                 }
 
                 // Backpropagate through hidden layers
-               for(let l = this.layers.length - 1; l >= 0; l--) {
+                for (let l = this.layers.length - 1; l >= 0; l--) {
                     const layer = this.layers[l];
                     const previousLayerOutput = l === 0 ? currentInput : layerOutputs[l - 1];
                     const nextLayer = l === this.layers.length - 1 ? this.outputLayer : this.layers[l + 1];
-                     for(let i=0; i<layer.length; i++) { 
+                    for (let i = 0; i < layer.length; i++) {
                         const neuron = layer[i];
                         const error = outputError.reduce((sum, nextNeuron, index) => sum + nextNeuron * nextLayer[index].weights[i], 0);
                         neuron.train(previousLayerOutput, error * neuron.derivative(outputValues[i]));
-                     }
-
+                    }
+                }
             }
+        }
+    }
+
+    /**
+     * Calculates the accuracy of the network on a dataset.
+     * @param {number[][]} x - Array of input feature arrays.
+     * @param {number[][]} y - Array of target output arrays.
+     * @returns {number} Accuracy as a fraction between 0 and 1.
+     * @throws {Error} Throws if input arrays length mismatch.
+     */
+    score(x, y) {
+        if (x.length !== y.length) {
+            throw new Error("Input and output arrays must have the same length.");
+        }
+        let correct = 0;
+        for (let i = 0; i < x.length; i++) {
+            const prediction = this.predict(x[i]).output;
+            const predictedClass = prediction.indexOf(Math.max(...prediction));
+            if (predictedClass === y[i].indexOf(Math.max(...y[i]))) {
+                correct++;
+            }
+        }
+        return correct / x.length; // accuracy between 0 and 1
     }
 }
-}
-}
-module.exports = {Neuron}
+
+module.exports = { Neuron, SoftmaxNN };
