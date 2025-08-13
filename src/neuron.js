@@ -11,6 +11,9 @@ function randomNormal(mean = 0, stddev = 1) {
     const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
     return z * stddev + mean;
 }
+function crossEntropyLoss(pred, target) {
+    return -target.reduce((sum, t, i) => sum + t * Math.log(pred[i] + 1e-15), 0);
+}
 
 /**
  * Class representing a single neuron with configurable activation and training.
@@ -49,6 +52,12 @@ class Neuron {
             this.weights = Array.from({ length: this.inputs }, () => Math.random() * 2 * limit - limit);
             this.bias = 0;
         }
+        this.lastInput = null;
+        this.z = null;
+        this.lastOutput = null;
+    
+        // For storing delta during backprop
+        this.delta = 0;
     }
 
     /**
@@ -112,8 +121,13 @@ class Neuron {
         if (x.length !== this.weights.length) {
             throw new Error("Input size does not match number of weights.");
         }
-        const z = this.weights.reduce((sum, w, i) => sum + w * x[i], this.bias);
-        return { z, output: this.activate(z) };
+       this.lastInput = x;
+       this.z = this.weights.reduce((sum, weight, i) => sum + weight * x[i], this.bias);
+       
+
+       this.lastOutput = this.activate(this.z);
+
+       return this.lastOutput
     }
 
     /**
@@ -126,14 +140,29 @@ class Neuron {
         if (!Array.isArray(x)) {
             throw new Error('x must be an array');
         }
-        const { z, output } = this.predict(x);
+        const output = this.predict(x);
         const error = output - y;
-        const gradient = error * this.derivative(z);
+        const gradient = error * this.derivative(this.z);
 
         for (let i = 0; i < this.weights.length; i++) {
             this.weights[i] -= this.learningRate * gradient * x[i];
         }
         this.bias -= this.learningRate * gradient;
+    }
+
+    backprop({target = null, downstreamDeltaSum = null, prevLayerActivations, prob = null}) {
+        if(target !== null) {
+            this.delta = (prob ?? this.lastOutput) - target;
+
+        } else {
+            this.delta = downstreamDeltaSum * this.derivative(this.z);
+            
+        }
+       
+        for(let i = 0; i < this.weights.length; i++) {
+            this.weights[i] -= this.learningRate * this.delta * prevLayerActivations[i];
+        }
+        this.bias -= this.learningRate * this.delta;
     }
 
     /**
@@ -174,7 +203,7 @@ class Neuron {
         }
         let sumSquaredError = 0;
         for (let i = 0; i < X.length; i++) {
-            const prediction = this.predict(X[i]).output;
+            const prediction = this.predict(X[i]);
             const error = Y[i] - prediction;
             sumSquaredError += error * error;
         }
@@ -194,7 +223,7 @@ class Neuron {
         }
         let correct = 0;
         for (let i = 0; i < X.length; i++) {
-            const prediction = this.predict(X[i]).output;
+            const prediction = this.predict(X[i]);
             const predictedClass = prediction >= 0.5 ? 1 : 0;
             if (predictedClass === Y[i]) {
                 correct++;
@@ -207,16 +236,11 @@ class Neuron {
 /**
  * Class representing a neural network with multiple layers and softmax output.
  */
+// ... same functions above ...
+
 class SoftmaxNN {
-    /**
-     * Creates a new SoftmaxNN instance.
-     * @param {number} inputs - Number of input features.
-     * @param {number[]} hidden - Array specifying the number of neurons in each hidden layer.
-     * @param {number} outputs - Number of output neurons.
-     * @param {number} [learningRate=0.01] - Learning rate for training.
-     * @throws {Error} Throws if input parameters are invalid.
-     */
-    constructor(inputs, hidden, outputs, learningRate = 0.01) {
+    constructor(inputs, hidden, outputs, learningRate = 0.01, activationType = 'sigmoid') {
+      
         if (!inputs) {
             throw new Error('Please input a number for "input". It is recommended to do so.');
         } else {
@@ -237,99 +261,85 @@ class SoftmaxNN {
         let prevLayerSize = this.inputs;
         this.layers = [];
         for (let size of this.hidden) {
-            const layer = Array.from({ length: size }, () => new Neuron(prevLayerSize, 'relu', learningRate));
+           
+            const layer = Array.from({ length: size }, () => new Neuron(prevLayerSize, activationType, learningRate));
             this.layers.push(layer);
             prevLayerSize = size;
         }
 
+       
         this.outputLayer = Array.from({ length: this.output }, () => new Neuron(prevLayerSize, 'linear', learningRate));
     }
 
-    /**
-     * Applies the softmax function to an array of logits.
-     * @param {number[]} logits - Array of raw output values from the output layer.
-     * @returns {number[]} Softmax-normalized probabilities.
-     */
     softmax(logits) {
+
         const max = Math.max(...logits);
         const exps = logits.map(x => Math.exp(x - max));
         const sum = exps.reduce((a, b) => a + b, 0);
-        return exps.map(e => e / sum);
+        const probs = exps.map(e => e / sum);
+       
+        return probs;
     }
 
-    /**
-     * Performs a forward pass through the network.
-     * @param {number[]} input - Input feature array.
-     * @returns {{output: number[], z: number[], layers: number[][]}} Object containing softmax output, raw output values, and hidden layer outputs.
-     */
     predict(input) {
+     
         let currentInput = input;
         let layerOutputs = [];
-        for (const layer of this.layers) {
-            currentInput = layer.map(neuron => neuron.predict(currentInput).output);
+        for (const [i, layer] of this.layers.entries()) {
+   
+            currentInput = layer.map(neuron => neuron.predict(currentInput));
             layerOutputs.push(currentInput);
         }
-        const outputValues = this.outputLayer.map(neuron => neuron.predict(currentInput).output);
+        const outputValues = this.outputLayer.map(neuron => neuron.predict(currentInput));
+      
 
-        return { output: this.softmax(outputValues), z: outputValues, layers: layerOutputs };
+        const softmaxOut = this.softmax(outputValues);
+      
+        return { output: softmaxOut, layers: layerOutputs };
     }
 
-    /**
-     * Trains the network on a dataset for multiple epochs.
-     * @param {number[][]} x - Array of input feature arrays.
-     * @param {number[][]} y - Array of target output arrays.
-     * @param {number} [epochs=50] - Number of training epochs.
-     * @throws {Error} Throws if input arrays length mismatch or epochs is not a number.
-     */
     train(x, y, epochs = 50) {
-        if (!Array.isArray(x) || !Array.isArray(y)) {
-            throw new Error('x and y must be arrays');
-        }
-        if (x.length !== y.length) {
-            throw new Error('X and Y lengths are not matching');
-        }
-        if (typeof epochs !== 'number') {
-            throw new Error('epochs must be a number');
-        }
-
-        for (let e = 0; e < epochs; e++) {
-            for (let i = 0; i < x.length; i++) {
-                let currentInput = x[i];
-                // Forward pass
-                const { output: finalOutput, z: outputValues, layers: layerOutputs } = this.predict(currentInput);
-
-                // Backward pass
-                const outputError = finalOutput.map((output, index) => output - y[i][index]);
-
-                // Update output layer weights
+      
+        for (let epoch = 0; epoch < epochs; epoch++) {
+            let totalLoss = 0;
+         
+               
+                for (let i = 0; i < x.length; i++) {
+                    const { output: finalOutput, layers: layerOutputs } = this.predict(x[i]);
+                    totalLoss += crossEntropyLoss(finalOutput, y[i]);
+               console.log(finalOutput);
+                    
+                    
+                // Output layer
                 for (let j = 0; j < this.outputLayer.length; j++) {
                     const neuron = this.outputLayer[j];
-                    neuron.train(layerOutputs[layerOutputs.length - 1], outputError[j]);
+                    const prevActivation = layerOutputs.length > 0 ? layerOutputs[layerOutputs.length - 1] : x[i];
+                    neuron.backprop({ target: y[i][j], prevLayerActivations: prevActivation, prob: finalOutput[j] });
                 }
-
-                // Backpropagate through hidden layers
-                for (let l = this.layers.length - 1; l >= 0; l--) {
-                    const layer = this.layers[l];
-                    const previousLayerOutput = l === 0 ? currentInput : layerOutputs[l - 1];
-                    const nextLayer = l === this.layers.length - 1 ? this.outputLayer : this.layers[l + 1];
-                    for (let i = 0; i < layer.length; i++) {
-                        const neuron = layer[i];
-                        const error = outputError.reduce((sum, nextNeuron, index) => sum + nextNeuron * nextLayer[index].weights[i], 0);
-                        neuron.train(previousLayerOutput, error * neuron.derivative(outputValues[i]));
+    
+                // Hidden layers
+                for (let j = this.layers.length - 1; j >= 0; j--) {
+                    const layer = this.layers[j];
+                    const nextLayer = (j === this.layers.length - 1) ? this.outputLayer : this.layers[j + 1];
+                    const prevActivations = j === 0 ? x[i] : this.layers[j - 1].map(neuron => neuron.lastOutput);
+    
+                    for (let k = 0; k < layer.length; k++) {
+                        const neuron = layer[k];
+                        let downstreamDeltaSum = 0;
+                        for (const nextNeuron of nextLayer) {
+                            downstreamDeltaSum += nextNeuron.delta * nextNeuron.weights[k];
+                        }
+                        neuron.backprop({ downstreamDeltaSum, prevLayerActivations: prevActivations });
                     }
                 }
             }
-        }
+    
+         
     }
+}
 
-    /**
-     * Calculates the accuracy of the network on a dataset.
-     * @param {number[][]} x - Array of input feature arrays.
-     * @param {number[][]} y - Array of target output arrays.
-     * @returns {number} Accuracy as a fraction between 0 and 1.
-     * @throws {Error} Throws if input arrays length mismatch.
-     */
     score(x, y) {
+   
         if (x.length !== y.length) {
             throw new Error("Input and output arrays must have the same length.");
         }
@@ -337,11 +347,15 @@ class SoftmaxNN {
         for (let i = 0; i < x.length; i++) {
             const prediction = this.predict(x[i]).output;
             const predictedClass = prediction.indexOf(Math.max(...prediction));
-            if (predictedClass === y[i].indexOf(Math.max(...y[i]))) {
+            const actualClass = y[i].indexOf(Math.max(...y[i]));
+
+            if (predictedClass === actualClass) {
                 correct++;
             }
         }
-        return correct / x.length; // accuracy between 0 and 1
+        const accuracy = correct / x.length;
+   
+        return accuracy;
     }
 }
 
